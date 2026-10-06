@@ -7,6 +7,7 @@ interface FrontendEnv {
   API: Fetcher;
   PACT_ACCESS_PASSWORD?: string;
   PACT_API_TOKEN?: string;
+  REQUIRE_LOGIN?: string;
 }
 
 const unauthorized = () =>
@@ -49,14 +50,19 @@ const isAuthorized = (request: Request, password: string): boolean => {
 
 export default {
   async fetch(request: Request, env: FrontendEnv): Promise<Response> {
-    if (!env.PACT_ACCESS_PASSWORD || !env.PACT_API_TOKEN) {
+    if (!env.PACT_API_TOKEN) {
       return new Response("Pact deployment secrets are not configured.", {
         status: 503,
       });
     }
 
-    if (!isAuthorized(request, env.PACT_ACCESS_PASSWORD)) {
-      return unauthorized();
+    if (env.REQUIRE_LOGIN === "true") {
+      if (!env.PACT_ACCESS_PASSWORD) {
+        return new Response("Pact login is not configured.", { status: 503 });
+      }
+      if (!isAuthorized(request, env.PACT_ACCESS_PASSWORD)) {
+        return unauthorized();
+      }
     }
 
     const url = new URL(request.url);

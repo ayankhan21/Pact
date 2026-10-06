@@ -16,11 +16,12 @@ describe("frontend Worker access gate", () => {
     },
     PACT_ACCESS_PASSWORD: "local-test-password",
     PACT_API_TOKEN: "local-test-token",
+    REQUIRE_LOGIN: "false",
   });
 
-  it("fails closed when deployment secrets are missing", async () => {
+  it("fails closed when the internal API token is missing", async () => {
     const env = makeEnv();
-    env.PACT_ACCESS_PASSWORD = "";
+    env.PACT_API_TOKEN = "";
 
     const response = await frontend.fetch(makeRequest(), env);
 
@@ -29,7 +30,9 @@ describe("frontend Worker access gate", () => {
   });
 
   it("challenges requests without the single-user password", async () => {
-    const response = await frontend.fetch(makeRequest(), makeEnv());
+    const env = makeEnv();
+    env.REQUIRE_LOGIN = "true";
+    const response = await frontend.fetch(makeRequest(), env);
 
     expect(response.status).toBe(401);
     expect(response.headers.get("WWW-Authenticate")).toContain("Basic");
@@ -37,6 +40,7 @@ describe("frontend Worker access gate", () => {
 
   it("serves assets after valid Basic authentication", async () => {
     const env = makeEnv();
+    env.REQUIRE_LOGIN = "true";
     const authorization = `Basic ${btoa("pact:local-test-password")}`;
 
     const response = await frontend.fetch(makeRequest(authorization), env);
@@ -49,6 +53,7 @@ describe("frontend Worker access gate", () => {
 
   it("proxies API calls with an internal token, not browser credentials", async () => {
     const env = makeEnv();
+    env.REQUIRE_LOGIN = "true";
     const authorization = `Basic ${btoa("pact:local-test-password")}`;
     const request = new Request(
       "https://pact-web.example.workers.dev/api/tasks",
@@ -66,5 +71,14 @@ describe("frontend Worker access gate", () => {
       "local-test-token",
     );
     expect(apiRequest.headers.has("Authorization")).toBe(false);
+  });
+
+  it("serves assets without prompting when login is disabled", async () => {
+    const env = makeEnv();
+
+    const response = await frontend.fetch(makeRequest(), env);
+
+    expect(response.status).toBe(200);
+    expect(env.ASSETS.fetch).toHaveBeenCalledOnce();
   });
 });

@@ -4,6 +4,9 @@
   "main": "src/server/frontend.ts",
   "compatibility_date": "2025-10-06",
   "workers_dev": true,
+  "vars": {
+    "REQUIRE_LOGIN": "false"
+  },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",

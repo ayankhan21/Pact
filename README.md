@@ -45,7 +45,7 @@ Live Workers:
 - Frontend: https://pact-web.pact-ayan.workers.dev
 - API: https://pact-api.pact-ayan.workers.dev
 
-The frontend requires HTTP Basic authentication with username `pact` and the password stored in the `PACT_ACCESS_PASSWORD` Worker secret. The API URL rejects direct requests; the frontend Worker accesses it using the service binding and shared `PACT_API_TOKEN` secret.
+Frontend username/password login is currently disabled with `REQUIRE_LOGIN=false`. Anyone who knows the frontend URL can access the app and its personal plan/context data. The API URL still rejects direct requests; the frontend Worker accesses it using the service binding and shared `PACT_API_TOKEN` secret. Re-enable the login by setting `REQUIRE_LOGIN` to `true` in `wrangler.frontend.jsonc` and redeploying the frontend.
 
 Before deploying, register a `workers.dev` subdomain in Cloudflare Dashboard under **Workers & Pages**. Set the secrets before publishing so the frontend fails closed until access is configured:
 
@@ -58,7 +58,7 @@ npm run deploy:api
 npm run deploy:web
 ```
 
-Enter secrets only at Wrangler's terminal prompt. Use the same randomly generated `PACT_API_TOKEN` value for both Workers; the frontend Worker adds it to service-binding requests, and the API rejects direct unauthenticated requests. The frontend uses HTTP Basic authentication with username `pact` and the `PACT_ACCESS_PASSWORD` value. Do not paste either secret into chat or source files.
+Enter secrets only at Wrangler's terminal prompt. Use the same randomly generated `PACT_API_TOKEN` value for both Workers; the frontend Worker adds it to service-binding requests, and the API rejects direct unauthenticated requests. `PACT_ACCESS_PASSWORD` is retained for when frontend login is re-enabled. Do not paste secrets into chat or source files.
 
 The remote D1 database `pact-prod` has already been created and its initial migration applied. To apply later migrations, run `npm run db:migrate:remote` before deploying the API.
 

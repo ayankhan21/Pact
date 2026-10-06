@@ -32,22 +32,22 @@ The hosted layout is deployed as two Workers:
 - **Frontend Worker:** serves the Vite `dist` assets, enforces a single-user access gate, and proxies `/api/*` through a Worker service binding.
 - **API Worker:** handles task/context/chat requests, reads and writes a remote D1 database, and calls Groq. A server-to-server token prevents direct unauthenticated API access.
 
-This split keeps browser assets, private API operations, and provider secrets in their proper runtime boundaries. The frontend uses HTTP Basic authentication for this single-user deployment; Cloudflare Access with a custom domain is a stronger alternative.
+This split keeps browser assets, private API operations, and provider secrets in their proper runtime boundaries. Frontend Basic authentication is implemented but currently disabled through `REQUIRE_LOGIN=false` at the user's request. Cloudflare Access with a custom domain is a stronger alternative.
 
 Deployed URLs:
 
 - Frontend: https://pact-web.pact-ayan.workers.dev
 - API: https://pact-api.pact-ayan.workers.dev
 
-The frontend responds with an HTTP Basic challenge when unauthenticated. The API rejects requests that do not contain the internal service token; the browser does not receive that token.
+The API rejects requests that do not contain the internal service token; the browser does not receive that token. With frontend login disabled, anyone who knows the frontend URL can access task and context data through the frontend.
 
 ## Current Limitations and Safety Notes
 
 - Local task/context APIs use D1 and were verified to retain data across a Worker restart. The remote D1 database and initial schema are provisioned, and both Workers are deployed.
 - Conversation messages are not yet persisted or restored; the schema exists, but chat currently sends only the latest user message to Groq.
 - Assistant replies do not yet invoke validated tools. Task updates currently come from explicit UI actions.
-- Production secrets must be set before deploying. The frontend fails closed without its password and service token, and the API fails closed without its internal token. CORS is not authentication.
-- The frontend gate is single-password protection, not per-user identity management. Backups and retention policies remain to be configured before storing long-term personal history.
+- The API fails closed without its internal token. Frontend login is currently disabled; this is not appropriate for sensitive personal data on a public URL. CORS is not authentication.
+- When enabled, the frontend gate is single-password protection, not per-user identity management. Backups and retention policies remain to be configured before storing long-term personal history.
 
 ## Local Run
 
