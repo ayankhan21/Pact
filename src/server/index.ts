@@ -33,6 +33,7 @@ export interface Env {
   APP_ENV?: string;
   GROQ_API_KEY?: string;
   GROQ_MODEL?: string;
+  PACT_API_TOKEN?: string;
 }
 
 const json = (payload: unknown, status = 200): Response =>
@@ -57,6 +58,15 @@ const parseJson = async (request: Request): Promise<any> => {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    if (env.APP_ENV === "production") {
+      if (!env.PACT_API_TOKEN) {
+        return json({ error: "API access is not configured." }, 503);
+      }
+      if (request.headers.get("X-Pact-Internal-Token") !== env.PACT_API_TOKEN) {
+        return json({ error: "Unauthorized." }, 401);
+      }
+    }
 
     if (request.method === "OPTIONS") {
       return json({ ok: true });

@@ -36,7 +36,31 @@ npm run lint
 - Copy `.dev.vars.example` to `.dev.vars` when running local Worker development, then set `GROQ_API_KEY` locally
 - Keep the Groq API key server-side and never commit it to Git
 - The first local API request seeds the dated job-switch itinerary and context into D1 if that plan is empty
-- Use `wrangler.jsonc` as the foundation for local and production Cloudflare configuration
+- `wrangler.jsonc` is for local development; `wrangler.api.jsonc` and `wrangler.frontend.jsonc` define separate production Workers
+
+## Production deployment
+
+Live Workers:
+
+- Frontend: https://pact-web.pact-ayan.workers.dev
+- API: https://pact-api.pact-ayan.workers.dev
+
+The frontend requires HTTP Basic authentication with username `pact` and the password stored in the `PACT_ACCESS_PASSWORD` Worker secret. The API URL rejects direct requests; the frontend Worker accesses it using the service binding and shared `PACT_API_TOKEN` secret.
+
+Before deploying, register a `workers.dev` subdomain in Cloudflare Dashboard under **Workers & Pages**. Set the secrets before publishing so the frontend fails closed until access is configured:
+
+```powershell
+npx wrangler secret put GROQ_API_KEY --config wrangler.api.jsonc
+npx wrangler secret put PACT_API_TOKEN --config wrangler.api.jsonc
+npx wrangler secret put PACT_API_TOKEN --config wrangler.frontend.jsonc
+npx wrangler secret put PACT_ACCESS_PASSWORD --config wrangler.frontend.jsonc
+npm run deploy:api
+npm run deploy:web
+```
+
+Enter secrets only at Wrangler's terminal prompt. Use the same randomly generated `PACT_API_TOKEN` value for both Workers; the frontend Worker adds it to service-binding requests, and the API rejects direct unauthenticated requests. The frontend uses HTTP Basic authentication with username `pact` and the `PACT_ACCESS_PASSWORD` value. Do not paste either secret into chat or source files.
+
+The remote D1 database `pact-prod` has already been created and its initial migration applied. To apply later migrations, run `npm run db:migrate:remote` before deploying the API.
 
 ## MVP focus
 
@@ -53,5 +77,5 @@ The current implementation covers:
 
 1. Add LLM tool calls that perform validated task and schedule mutations
 2. Add conversation history persistence and restore it in the UI
-3. Configure production D1, secrets, and Cloudflare deployment
-4. Add authentication before exposing personal data outside local development
+3. Finish the two-Worker Cloudflare deployment and verify hosted URLs
+4. Add persisted conversation history, backups, and retention controls

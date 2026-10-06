@@ -1,19 +1,19 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "pact",
-  "compatibility_date": "2025-10-06",
-  "main": "src/server/index.ts",
-  "assets": {
-    "directory": "./dist"
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "pact-dev",
-      "database_id": "local-dev"
-    }
-  ],
-  "vars": {
-    "APP_ENV": "development"
-  }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "pact",
+	"compatibility_date": "2025-10-06",
+	"main": "src/server/index.ts",
+	"assets": {
+		"directory": "./dist"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "pact-dev",
+			"database_id": "local-dev"
+		}
+	],
+	"vars": {
+		"APP_ENV": "development"
+	}
 }
