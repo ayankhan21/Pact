@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import {
   calculateCompletionRate,
@@ -6,88 +6,312 @@ import {
   type Task,
   type TaskStatus,
 } from "./lib/task-state";
+import { buildJobSwitchTasks, jobSwitchContext } from "./lib/job-switch-plan";
 
-const initialTasks: Task[] = [
+const statusOrder: TaskStatus[] = ["todo", "in_progress", "blocked", "done"];
+type ChatMessage = { id: string; role: "assistant" | "user"; text: string };
+
+const getLocalDate = () => {
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  return now.toISOString().slice(0, 10);
+};
+
+const initialMessages = [
   {
-    id: "task-1",
-    title: "Kafka consumer implementation",
-    description:
-      "Build and validate the consumer flow for the interview prep sprint.",
-    category: "Backend",
-    status: "in_progress",
-    estimatedMinutes: 90,
-    dueDate: "2026-10-06",
-    history: [
-      {
-        from: "todo",
-        to: "in_progress",
-        createdAt: "2026-10-06T08:15:00.000Z",
-      },
-    ],
-  },
-  {
-    id: "task-2",
-    title: "DSA practice set",
-    description: "Solve three medium questions and review patterns.",
-    category: "Algorithms",
-    status: "todo",
-    estimatedMinutes: 75,
-    dueDate: "2026-10-06",
-    history: [],
-  },
-  {
-    id: "task-3",
-    title: "System design rehearsal",
-    description:
-      "Walk through a URL shortener and capture decision trade-offs.",
-    category: "System Design",
-    status: "blocked",
-    estimatedMinutes: 60,
-    dueDate: "2026-10-06",
-    history: [
-      {
-        from: "todo",
-        to: "blocked",
-        createdAt: "2026-10-06T07:10:00.000Z",
-        reason: "Waiting on notes",
-      },
-    ],
-  },
-  {
-    id: "task-4",
-    title: "Resume polish",
-    description: "Tighten the backend bullets and quantify wins.",
-    category: "Career",
-    status: "done",
-    estimatedMinutes: 45,
-    dueDate: "2026-10-05",
-    history: [
-      { from: "todo", to: "done", createdAt: "2026-10-05T19:00:00.000Z" },
-    ],
+    id: "msg-1",
+    role: "assistant" as const,
+    text: "Your Oct 6-Nov 10 job-switch itinerary is loaded. Tell me what happened, and I’ll help keep the plan realistic.",
   },
 ];
 
-const statusOrder: TaskStatus[] = ["todo", "in_progress", "blocked", "done"];
+const findTaskByKeyword = (text: string, tasks: Task[]) => {
+  const normalized = text.toLowerCase();
+
+  return tasks.find((task) => normalized.includes(task.title.toLowerCase()));
+};
 
 function App() {
-  const [tasks, setTasks] = useState(initialTasks);
+  const [tasks, setTasks] = useState<Task[]>(buildJobSwitchTasks());
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+  const [draft, setDraft] = useState("");
+  const [contextDraft, setContextDraft] = useState(jobSwitchContext);
+  const [contextSavedAt, setContextSavedAt] = useState("Saved just now");
+  const [selectedDate, setSelectedDate] = useState(getLocalDate);
+  const [apiConnected, setApiConnected] = useState(false);
+  const [newTask, setNewTask] = useState({
+    title: "",
+    category: "Backend",
+    estimatedMinutes: 60,
+    dueDate: selectedDate,
+  });
 
   const board = useMemo(
     () =>
       statusOrder.map((status) => ({
         status,
-        items: tasks.filter((task) => task.status === status),
+        items: tasks.filter(
+          (task) => task.status === status && task.dueDate === selectedDate,
+        ),
       })),
-    [tasks],
+    [tasks, selectedDate],
   );
 
-  const completionRate = calculateCompletionRate(tasks);
+  const selectedTasks = tasks.filter((task) => task.dueDate === selectedDate);
+  const completionRate = calculateCompletionRate(selectedTasks);
 
-  const handleStatusChange = (taskId: string, nextStatus: TaskStatus) => {
+  useEffect(() => {
+    let isCurrent = true;
+
+    const loadPlan = async () => {
+      try {
+        const [tasksResponse, contextResponse] = await Promise.all([
+          fetch("/api/tasks"),
+          fetch("/api/context"),
+        ]);
+
+        if (!tasksResponse.ok || !contextResponse.ok) {
+          throw new Error("Pact API is not available.");
+        }
+
+        const [{ tasks: savedTasks }, { context }] = await Promise.all([
+          tasksResponse.json() as Promise<{ tasks: Task[] }>,
+          contextResponse.json() as Promise<{
+            context: typeof jobSwitchContext;
+          }>,
+        ]);
+
+        if (isCurrent) {
+          setTasks(savedTasks);
+          setContextDraft(context);
+          setApiConnected(true);
+        }
+      } catch {
+        if (isCurrent) {
+          setApiConnected(false);
+        }
+      }
+    };
+
+    void loadPlan();
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
+  const addMessage = (role: "assistant" | "user", text: string) => {
+    setMessages((current) => [
+      ...current,
+      {
+        id: `${role}-${Date.now()}`,
+        role,
+        text,
+      },
+    ]);
+  };
+
+  const handleStatusChange = async (taskId: string, nextStatus: TaskStatus) => {
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task) return;
+
+    const updatedTask = moveTaskToStatus(task, nextStatus);
+    if (apiConnected) {
+      try {
+        const response = await fetch(`/api/tasks/${taskId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: nextStatus }),
+        });
+        if (!response.ok) throw new Error("Task update failed.");
+      } catch {
+        addMessage(
+          "assistant",
+          "I couldn’t save that status change. Please try again when the connection is restored.",
+        );
+        return;
+      }
+    }
+
     setTasks((currentTasks) =>
-      currentTasks.map((task) =>
-        task.id === taskId ? moveTaskToStatus(task, nextStatus) : task,
+      currentTasks.map((current) =>
+        current.id === taskId ? updatedTask : current,
       ),
+    );
+    addMessage(
+      "assistant",
+      `${task.title} was moved to ${nextStatus.replace("_", " ")}.`,
+    );
+  };
+
+  const handleSubmitMessage = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmed = draft.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const text = trimmed;
+    setDraft("");
+    addMessage("user", text);
+
+    const askAssistant = async () => {
+      try {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: text,
+            tasks: selectedTasks,
+            context: contextDraft,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Assistant request failed.");
+        }
+
+        const payload = (await response.json()) as {
+          reply?: string;
+          error?: string;
+        };
+
+        if (payload.reply) {
+          addMessage("assistant", payload.reply);
+          return;
+        }
+
+        throw new Error(payload.error ?? "Assistant request failed.");
+      } catch {
+        const lower = text.toLowerCase();
+        const taskMatch = findTaskByKeyword(text, tasks);
+
+        let assistantReply =
+          "I’m tracking that. We’ll keep the plan and the real progress aligned.";
+
+        if (taskMatch) {
+          const taskTitle = taskMatch.title;
+
+          if (
+            lower.includes("done") ||
+            lower.includes("finished") ||
+            lower.includes("completed")
+          ) {
+            setTasks((currentTasks) =>
+              currentTasks.map((task) =>
+                task.id === taskMatch.id
+                  ? moveTaskToStatus(task, "done")
+                  : task,
+              ),
+            );
+            assistantReply = `${taskTitle} is marked as complete. Nice work.`;
+          } else if (lower.includes("blocked") || lower.includes("stuck")) {
+            setTasks((currentTasks) =>
+              currentTasks.map((task) =>
+                task.id === taskMatch.id
+                  ? moveTaskToStatus(task, "blocked")
+                  : task,
+              ),
+            );
+            assistantReply = `${taskTitle} is now blocked. We should decide what changed and whether we need to re-scope it.`;
+          } else if (
+            lower.includes("tomorrow") ||
+            lower.includes("reschedule") ||
+            lower.includes("move")
+          ) {
+            setTasks((currentTasks) =>
+              currentTasks.map((task) =>
+                task.id === taskMatch.id
+                  ? { ...task, dueDate: "2026-10-08" }
+                  : task,
+              ),
+            );
+            assistantReply = `${taskTitle} has been moved to tomorrow. I’ll keep the schedule realistic and watch for overload.`;
+          }
+        }
+
+        if (lower.includes("today") && lower.includes("what")) {
+          assistantReply = `You have ${tasks.filter((task) => task.status !== "done").length} open tasks today, and your completion rate is ${completionRate}%.`;
+        }
+
+        addMessage("assistant", assistantReply);
+      }
+    };
+
+    void askAssistant();
+  };
+
+  const handleCreateTask = () => {
+    const title = newTask.title.trim();
+    if (!title) {
+      return;
+    }
+
+    const created = {
+      id: `task-${Date.now()}`,
+      title,
+      category: newTask.category,
+      status: "todo" as const,
+      estimatedMinutes: newTask.estimatedMinutes,
+      dueDate: newTask.dueDate,
+      history: [],
+    };
+
+    const saveTask = async () => {
+      let taskToAdd: Task = created;
+      if (apiConnected) {
+        try {
+          const response = await fetch("/api/tasks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(created),
+          });
+          if (!response.ok) throw new Error("Task creation failed.");
+          const payload = (await response.json()) as { task: Task };
+          taskToAdd = payload.task;
+        } catch {
+          addMessage(
+            "assistant",
+            "I couldn’t save that task. Please try again when the connection is restored.",
+          );
+          return;
+        }
+      }
+      setTasks((currentTasks) => [taskToAdd, ...currentTasks]);
+      addMessage(
+        "assistant",
+        `${title} was added to the board and scheduled for ${newTask.dueDate}.`,
+      );
+    };
+
+    void saveTask();
+    setNewTask({
+      title: "",
+      category: "Backend",
+      estimatedMinutes: 60,
+      dueDate: selectedDate,
+    });
+  };
+
+  const handleSaveContext = async () => {
+    if (apiConnected) {
+      try {
+        const response = await fetch("/api/context", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(contextDraft),
+        });
+        if (!response.ok) throw new Error("Context update failed.");
+      } catch {
+        setContextSavedAt("Could not save. Check the connection and retry.");
+        return;
+      }
+    }
+    setContextSavedAt("Saved just now");
+    addMessage(
+      "assistant",
+      "Context updated. I’ll use the revised goal and constraints in future checkpoints.",
     );
   };
 
@@ -99,7 +323,10 @@ function App() {
           <h1>Accountability dashboard</h1>
         </div>
         <div className="topbar-actions">
-          <span>Today • 2026-10-06</span>
+          <span>
+            {selectedDate === getLocalDate() ? "Today" : "Plan date"} •{" "}
+            {selectedDate}
+          </span>
           <button type="button" className="profile-pill">
             A
           </button>
@@ -110,31 +337,28 @@ function App() {
         <section className="chat-panel panel">
           <div className="chat-header">
             <span>Ask Pact anything</span>
-            <span className="chat-status">Live</span>
+            <span className="chat-status">
+              {apiConnected ? "Connected" : "Local preview"}
+            </span>
           </div>
 
           <div className="message-list">
-            <div className="bubble assistant">
-              You have 3 tasks remaining today. Focus on Kafka first, then DSA,
-              and keep the system design block active if energy drops later.
-            </div>
-            <div className="bubble user">
-              I finished the resume pass and I’m starting Kafka now.
-            </div>
-            <div className="bubble assistant">
-              Good. That keeps the day on track. We’ll check the DSA block after
-              the Kafka session.
-            </div>
+            {messages.map((message) => (
+              <div key={message.id} className={`bubble ${message.role}`}>
+                {message.text}
+              </div>
+            ))}
           </div>
 
-          <div className="composer">
+          <form className="composer" onSubmit={handleSubmitMessage}>
             <input
               type="text"
-              value="Tell me what I need to do today..."
-              readOnly
+              placeholder="Tell me what I need to do today..."
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
             />
-            <button type="button">→</button>
-          </div>
+            <button type="submit">→</button>
+          </form>
         </section>
 
         <section className="summary-grid">
@@ -144,11 +368,15 @@ function App() {
           </article>
           <article className="metric-card panel">
             <span>Completed today</span>
-            <strong>1</strong>
+            <strong>
+              {selectedTasks.filter((task) => task.status === "done").length}
+            </strong>
           </article>
           <article className="metric-card panel">
             <span>Remaining today</span>
-            <strong>3</strong>
+            <strong>
+              {selectedTasks.filter((task) => task.status !== "done").length}
+            </strong>
           </article>
           <article className="metric-card panel">
             <span>Current streak</span>
@@ -159,12 +387,75 @@ function App() {
         <section className="board-wrap panel">
           <div className="board-header">
             <div>
-              <p className="eyebrow">Today</p>
+              <p className="eyebrow">Plan day</p>
               <h2>Kanban board</h2>
             </div>
-            <button type="button" className="ghost-button">
-              + Add task
-            </button>
+            <div className="board-actions">
+              <input
+                aria-label="Select plan date"
+                type="date"
+                min="2026-10-06"
+                max="2026-11-10"
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+              />
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={handleCreateTask}
+              >
+                + Add task
+              </button>
+            </div>
+          </div>
+
+          <div className="quick-add">
+            <input
+              type="text"
+              placeholder="Task title"
+              value={newTask.title}
+              onChange={(event) =>
+                setNewTask((current) => ({
+                  ...current,
+                  title: event.target.value,
+                }))
+              }
+            />
+            <input
+              type="text"
+              placeholder="Category"
+              value={newTask.category}
+              onChange={(event) =>
+                setNewTask((current) => ({
+                  ...current,
+                  category: event.target.value,
+                }))
+              }
+            />
+            <input
+              type="number"
+              min="15"
+              step="15"
+              value={newTask.estimatedMinutes}
+              onChange={(event) =>
+                setNewTask((current) => ({
+                  ...current,
+                  estimatedMinutes: Number(event.target.value) || 60,
+                }))
+              }
+            />
+            <input
+              type="date"
+              min="2026-10-06"
+              max="2026-11-10"
+              value={newTask.dueDate}
+              onChange={(event) =>
+                setNewTask((current) => ({
+                  ...current,
+                  dueDate: event.target.value,
+                }))
+              }
+            />
           </div>
 
           <div className="board-grid">
@@ -218,34 +509,67 @@ function App() {
               <p className="eyebrow">Current context</p>
               <h2>Job switch prep</h2>
             </div>
-            <button type="button" className="ghost-button">
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={handleSaveContext}
+            >
               Save context
             </button>
           </div>
 
-          <div className="context-content">
-            <div>
-              <h3>Goal</h3>
-              <p>
-                Switch into a backend engineering role within the next six
-                weeks.
-              </p>
-            </div>
-            <div>
-              <h3>Behavior</h3>
-              <p>
-                I tend to overestimate energy after a long focus block, so Pact
-                should protect my deep-work time.
-              </p>
-            </div>
-            <div>
-              <h3>Constraints</h3>
-              <p>
-                Weekdays allow about 3 hours of focused work, and system design
-                tasks consistently need more buffer time.
-              </p>
-            </div>
+          <div className="context-form">
+            <label>
+              Goal
+              <textarea
+                value={contextDraft.goal}
+                onChange={(event) =>
+                  setContextDraft((current) => ({
+                    ...current,
+                    goal: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              Itinerary
+              <textarea
+                value={contextDraft.itinerary}
+                onChange={(event) =>
+                  setContextDraft((current) => ({
+                    ...current,
+                    itinerary: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              Behavioral context
+              <textarea
+                value={contextDraft.behaviors}
+                onChange={(event) =>
+                  setContextDraft((current) => ({
+                    ...current,
+                    behaviors: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              Constraints
+              <textarea
+                value={contextDraft.constraints}
+                onChange={(event) =>
+                  setContextDraft((current) => ({
+                    ...current,
+                    constraints: event.target.value,
+                  }))
+                }
+              />
+            </label>
           </div>
+
+          <div className="context-save-status">{contextSavedAt}</div>
         </section>
       </main>
     </div>

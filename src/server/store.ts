@@ -1,4 +1,5 @@
 import type { TaskStatus } from "./schema";
+import { buildJobSwitchTasks, jobSwitchContext } from "../lib/job-switch-plan";
 
 export type Task = {
   id: string;
@@ -27,44 +28,13 @@ export type ContextState = {
   updatedAt: string;
 };
 
-let taskStore: Task[] = [
-  {
-    id: "task-seed-1",
-    title: "Kafka consumer implementation",
-    description:
-      "Build the consumer flow and validate the interview prep sprint.",
-    category: "Backend",
-    status: "todo",
-    estimatedMinutes: 90,
-    dueDate: "2026-10-07",
-    history: [
-      { from: "todo", to: "todo", createdAt: "2026-10-07T00:00:00.000Z" },
-    ],
-    createdAt: "2026-10-07T00:00:00.000Z",
-    updatedAt: "2026-10-07T00:00:00.000Z",
-  },
-  {
-    id: "task-seed-2",
-    title: "Resume polish",
-    description: "Tighten backend bullets and quantify wins.",
-    category: "Career",
-    status: "done",
-    estimatedMinutes: 45,
-    dueDate: "2026-10-06",
-    history: [
-      { from: "todo", to: "done", createdAt: "2026-10-06T19:00:00.000Z" },
-    ],
-    createdAt: "2026-10-06T19:00:00.000Z",
-    updatedAt: "2026-10-06T19:00:00.000Z",
-  },
-];
+let taskStore: Task[] = buildJobSwitchTasks().map((task) => {
+  const createdAt = `${task.dueDate}T00:00:00.000Z`;
+  return { ...task, createdAt, updatedAt: createdAt };
+});
 
 let currentContext: ContextState = {
-  goal: "Switch to a backend engineering role within the next six weeks.",
-  itinerary: "Week 1: Kafka + DSA + resume polishing",
-  behaviors:
-    "I tend to overestimate available energy after a long focus block.",
-  constraints: "Weekdays allow roughly three focused hours.",
+  ...jobSwitchContext,
   version: 0,
   updatedAt: new Date().toISOString(),
 };
