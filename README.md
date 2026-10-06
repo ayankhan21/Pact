@@ -42,7 +42,7 @@ npm run lint
 
 Live Workers:
 
-- Frontend: https://pact-web.pact-ayan.workers.dev
+- Frontend dashboard: [https://pact-web.pact-ayan.workers.dev](https://pact-web.pact-ayan.workers.dev)
 - API: https://pact-api.pact-ayan.workers.dev
 
 Frontend username/password login is currently disabled with `REQUIRE_LOGIN=false`. Anyone who knows the frontend URL can access the app and its personal plan/context data. The API URL still rejects direct requests; the frontend Worker accesses it using the service binding and shared `PACT_API_TOKEN` secret. Re-enable the login by setting `REQUIRE_LOGIN` to `true` in `wrangler.frontend.jsonc` and redeploying the frontend.
